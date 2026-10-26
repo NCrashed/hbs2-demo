@@ -1,0 +1,243 @@
+
+== 1. Two peers on this machine ==
+One for the owner, one for the contributor. They know each other's
+address and nothing else.
+
+[contrib]
+$ hbs2-peer peers
+CRRTVHtYJcxJd4rz5599v1n7psZsG77QLHZnig6cXdrL 127.0.0.1:17551
+
+== 2. The owner publishes a project ==
+An ordinary git repository, pushed to an hbs23:// remote. The remote's
+key is the project's identity from now on.
+
+[owner]
+$ git init -q
+$ printf "#!/bin/sh\necho \"Helo, \$1\"\n" > greet.sh && cat greet.sh
+#!/bin/sh
+echo "Helo, $1"
+$ git add greet.sh && git commit -qm "greeter: first version"
+$ hbs2-git3 repo:init --new
+added git remote normal-empty hbs23://7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+repo:init names the remote with two random words; call it origin.
+$ git remote rename "$(git remote | head -1)" origin
+$ git push -q origin master
+use git fetch to get latest versions
+repo key: 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+
+== 3. The owner opens the project to contributions ==
+Contributors do not get accounts. They write letters to the project's
+mailbox, and the owner decides what becomes part of the record.
+The mailbox has a key of its own, and a sigil: the public half people
+encrypt their letters to.
+$ hbs2-cli hbs2:keyring:new > ~/mailbox.key && mkdir -p ~/.hbs2-keyman/keys && cp ~/mailbox.key ~/.hbs2-keyman/keys/ && hbs2-keyman update
+$ hbs2-peer mailbox create --key $MBOX hub
+created 6kc1AzwUCeEvAve2xyrhvxN5h9NWnfxozSuyiTeBFkvn hub
+Who may write: anyone, from any peer. A public project would also
+charge proof-of-work per letter (hbs2-hub policy pow).
+$ hbs2-hub policy default --mailbox $MBOX --sender allow --peer allow
+policy written
+policy version 1
+(peer allow all)\u{0a}(sender allow all)\u{0a}
+$ hbs2-cli hbs2:sigil:create:from-keyring ~/mailbox.key > ~/mailbox.sigil
+Now write both into the repository, so a contributor needs nothing but
+the repo key:
+$ hbs2-git3 repo:mailbox:set $REPO --key $MBOX
+declared (mailbox 6kc1AzwUCeEvAve2xyrhvxN5h9NWnfxozSuyiTeBFkvn hub)
+$ hbs2-git3 repo:mailbox:sigil $REPO --key $MBOX --sigil $MBOX_SIGIL
+published sigil HzNxqet6C1V6KpvXt2f2TQHJz5J7TXwznpPDjCdskvCC
+$ hbs2-hub status --repo $REPO
+repository 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+signing yes: this machine holds the repository key
+canon    none here yet
+published nothing to publish
+mailbox 6kc1AzwUCeEvAve2xyrhvxN5h9NWnfxozSuyiTeBFkvn
+         nothing waiting
+
+== 4. A contributor clones it ==
+
+[contrib]
+All they were given is the repo key.
+$ git clone -q hbs23://$REPO project
+use git fetch to get latest versions
+To write letters they need an identity (a keyring), its sigil (so the
+owner can answer them) and a mailbox for the answers.
+$ mkdir -p ~/.hbs2-keyman/keys && hbs2-cli hbs2:keyring:new > ~/.hbs2-keyman/keys/me.key && hbs2-keyman update
+$ hbs2-cli hbs2:sigil:create:from-keyring ~/.hbs2-keyman/keys/me.key > ~/me.sigil
+$ hbs2-peer mailbox create --key $ME hub
+created BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls hub
+$ hbs2-hub whoami --author $ME --sender $ME_SIGIL --repo $REPO
+author BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls : this machine can sign as it
+sender 7RZLTE6JQh68kVEjpDgbW4qvdZawRU6yUU7H2hMADoyC : names BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+the sigil names that key: a reply can reach you
+repo 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi : mailbox 6kc1AzwUCeEvAve2xyrhvxN5h9NWnfxozSuyiTeBFkvn
+  recipient sigil HzNxqet6C1V6KpvXt2f2TQHJz5J7TXwznpPDjCdskvCC
+The repository names the sigil to seal letters to; fetch it once.
+$ hbs2-peer fetch $PROJECT_SIGIL
+
+== 5. The contributor files an issue ==
+$ echo "greet.sh prints \"Helo\" instead of \"Hello\"." | hbs2-hub issue new --repo $REPO --author $ME --sender $ME_SIGIL --title "Typo in the greeting" --body -
+hbs2-hub: solving 18 bits of work to leave this peer
+queued 2uAVPj8VEHoR1Sk6gSctpf8ujgxPYmii2XivvJPDGRhr
+thread ERduLUPV38Sq5n8QEaCuELzNpsxvayn7iskZ8jvdwxCK
+the peer has it, and nothing is in canon until a maintainer folds it;
+  `hbs2-hub updates --repo <key> --mailbox <your-mailbox>` is what comes back.
+
+== 6. The owner reads the mailbox ==
+
+[owner]
+$ hbs2-hub inbox --repo $REPO
+2uAVPj8V.. BMnJ8NQT.. author BMnJ8NQT.. event ERduLUPV.. at 2026-10-26T10:15:35Z open - (folds) "Typo in the greeting"
+$ hbs2-hub inbox show --mailbox $MBOX --repo $REPO --message $ISSUE_MSG
+message   2uAVPj8VEHoR1Sk6gSctpf8ujgxPYmii2XivvJPDGRhr
+envelope  BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+author    BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+event     ERduLUPV38Sq5n8QEaCuELzNpsxvayn7iskZ8jvdwxCK
+at        2026-10-26T10:15:35Z
+op        open
+triage    would fold
+target    7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+kind      issue
+title     Typo in the greeting
+body      
+  | greet.sh prints "Helo" instead of "Hello".
+canon     not folded
+
+== 7. The owner accepts the issue ==
+Accepting folds the letter into canon: the project's signed,
+append-only record, kept in the repository under refs/hbs2/meta.
+$ hbs2-hub inbox accept --repo $REPO --message $ISSUE_MSG
+hbs2-hub: solving 18 bits of work for the delete
+accepted ERduLUPV38Sq5n8QEaCuELzNpsxvayn7iskZ8jvdwxCK
+seq 1
+number 1
+commit 892bc8ddf13bcadcd41f57d92eec8e27c4edd180
+dropped from the mailbox: 2uAVPj8VEHoR1Sk6gSctpf8ujgxPYmii2XivvJPDGRhr
+no acknowledgement: no encryption key for 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+  an ack is sealed to its reader, so the signer needs one too
+not published yet: this wrote refs/hbs2/meta in this repository only.
+  `hbs2-hub publish` sends it, and until it does no clone sees it.
+("no acknowledgement" is expected here: the repository key made by
+repo:init has no encryption key to seal a reply with. The record does
+not depend on acks; the contributor reads canon itself.)
+$ hbs2-hub issue list $REPO
+#1    open   Typo in the greeting 
+Canon is a git ref, so it is published like one:
+$ hbs2-hub publish
+canon published to origin: 892bc8ddf13bcadcd41f57d92eec8e27c4edd180
+no staged proposals here to publish
+
+== 8. The contributor sees the issue in the project ==
+
+[contrib]
+$ hbs2-hub sync --repo $REPO
+fetched from origin
+canon: new -> 892bc8ddf13bcadcd41f57d92eec8e27c4edd180
+pulls: fetched
+$ hbs2-hub issue list $REPO
+#1    open   Typo in the greeting 
+$ hbs2-hub issue show $REPO 1
+#1 open Typo in the greeting
+thread ERduLUPV38Sq5n8QEaCuELzNpsxvayn7iskZ8jvdwxCK
+kind issue
+author BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+blessed-by 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+created 2026-10-26T10:15:58Z updated 2026-10-26T10:15:58Z
+origin 2uAVPj8VEHoR1Sk6gSctpf8ujgxPYmii2XivvJPDGRhr
+greet.sh prints "Helo" instead of "Hello".
+
+== 9. The contributor sends a fix ==
+A pull request is a git bundle of the new commits, sealed into a letter
+the same way. Only the delta travels.
+$ git checkout -qb fix-typo && sed -i "s/Helo/Hello/" greet.sh && git commit -qam "greet: fix the typo"
+$ hbs2-hub pr new --repo $REPO --author $ME --sender $ME_SIGIL --title "Fix the greeting typo" --onto master --from fix-typo --body "Fixes #1."
+hbs2-hub: solving 18 bits of work to leave this peer
+queued DK1Hpu3cSL5MyYsUHLCefHZPwgFeM4UBqqtFCjE5XDGU
+thread 9xPMT7jpdo7iLj4hfdxenNSM7QXxq9koaAWi8DMXkXrP
+tip b2bf6a45fc6ab553e29060189fde35186910501d base 83a51a0b5ea64f5a096d140abe9ee53aaaa499ad
+bundle AifdEw2SsMCte2exupDcvYoH397UFVeMEtXf4rNHyiqr (415 bytes before encryption)
+the peer has it, and nothing is in canon until a maintainer folds it;
+  `hbs2-hub updates --repo <key> --mailbox <your-mailbox>` is what comes back.
+
+== 10. The owner reviews and merges it ==
+
+[owner]
+$ hbs2-hub inbox --repo $REPO
+DK1Hpu3c.. BMnJ8NQT.. author BMnJ8NQT.. event 9xPMT7jp.. at 2026-10-26T10:16:00Z open - (folds) "Fix the greeting typo"
+$ hbs2-hub inbox accept --repo $REPO --message $PR_MSG
+note: this proposal adds 297 bytes of objects; `hub pr checkout` writes them out
+hbs2-hub: solving 18 bits of work for the delete
+accepted 9xPMT7jpdo7iLj4hfdxenNSM7QXxq9koaAWi8DMXkXrP
+seq 2
+number 2
+commit 3c2400e110387ee87dc00264acf8498d57f10bd7
+staged refs/hbs2/pulls/2/head
+dropped from the mailbox: DK1Hpu3cSL5MyYsUHLCefHZPwgFeM4UBqqtFCjE5XDGU
+no acknowledgement: no encryption key for 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+  an ack is sealed to its reader, so the signer needs one too
+not published yet: this wrote refs/hbs2/meta in this repository only.
+  `hbs2-hub publish` sends it, and until it does no clone sees it.
+$ hbs2-hub pr list $REPO
+#2    open   Fix the greeting typo 
+The proposal is now a local branch to review like any other:
+$ hbs2-hub pr checkout --repo $REPO --number $PR --branch review
+on branch review
+#2 proposes b2bf6a45fc6ab553e29060189fde35186910501d
+onto master base 83a51a0b5ea64f5a096d140abe9ee53aaaa499ad
+$ git diff master review
+diff --git a/greet.sh b/greet.sh
+index a8f6cd3..78034fe 100644
+--- a/greet.sh
++++ b/greet.sh
+@@ -1,2 +1,2 @@
+ #!/bin/sh
+-echo "Helo, $1"
++echo "Hello, $1"
+Merging is plain git. Then canon is told what happened, and refuses
+to record a merge that does not contain the proposal.
+$ git checkout -q master && git merge -q --no-ff review -m "Merge the greeting fix" && git push -q origin master
+$ hbs2-hub pr merge --repo $REPO --number $PR --commit $(git rev-parse --short HEAD) --into refs/heads/master
+merged #2 into refs/heads/master
+event 6dK1iP8Wa8jXgh1GAMr12kJhRnM67KJ9JVMpENg3apbE
+commit 277e8c46fe984adc4927bd131eb70a6097dd66df
+status is now merged; PEP-19 has the merge event set it, so no second event was written
+not published yet: this wrote refs/hbs2/meta in this repository only.
+  `hbs2-hub publish` sends it, and until it does no clone sees it.
+$ hbs2-hub issue close --repo $REPO --number 1 --note "Fixed by #$PR."
+event DsAsnZzYqyPA29tiuBhyX2TZDePFA1JKjYTqgd6evoeu
+seq 4
+commit 5435e34dad84326b36728b3d5648080e99dec157
+not published yet: this wrote refs/hbs2/meta in this repository only.
+  `hbs2-hub publish` sends it, and until it does no clone sees it.
+$ hbs2-hub publish
+canon published to origin: 5435e34dad84326b36728b3d5648080e99dec157
+staged proposals published to origin
+
+== 11. The contributor sees the result ==
+
+[contrib]
+$ hbs2-hub sync --repo $REPO
+fetched from origin
+canon: 892bc8ddf13bcadcd41f57d92eec8e27c4edd180 -> 5435e34dad84326b36728b3d5648080e99dec157
+pulls: fetched
+$ hbs2-hub pr list $REPO
+#2    merged Fix the greeting typo 
+$ hbs2-hub issue list $REPO
+#1    closed Typo in the greeting 
+$ git checkout -q master && git merge -q --ff-only origin/master && cat greet.sh
+#!/bin/sh
+echo "Hello, $1"
+$ hbs2-hub log $REPO
+1      open ERduLUPV38Sq5n8QEaCuELzNpsxvayn7iskZ8jvdwxCK by BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+2      open 9xPMT7jpdo7iLj4hfdxenNSM7QXxq9koaAWi8DMXkXrP by BMnJ8NQTnQbtmevV15gUUWoh6ArZAtqchLoGRrp7B5Ls
+3      merge 6dK1iP8Wa8jXgh1GAMr12kJhRnM67KJ9JVMpENg3apbE by 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+4      close DsAsnZzYqyPA29tiuBhyX2TZDePFA1JKjYTqgd6evoeu by 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+$ hbs2-hub verify $REPO
+canon 5435e34dad84326b36728b3d5648080e99dec157 (hub-meta 1) owner 7gGDvjZ6x4Dvq2DuK1FRLsRnpmjnge94wyMKozyxb6wi
+maintainers 1 redacted 0
+admitted 4 dropped 0 anomalies 0 unreadable 0 unversioned 0 misnamed 0 tree-version ok
+
+== 12. Done ==
+Everything above lives in the repository: any clone can rebuild every
+issue and pull request from refs/hbs2/meta, offline, and check every
+signature with hbs2-hub verify.
